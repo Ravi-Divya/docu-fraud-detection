@@ -1,0 +1,22 @@
+# DocuGuard - Render Blueprint
+# Deploy: push this repo to GitHub, then in Render: New > Blueprint.
+# Or use the Render dashboard with the settings shown below.
+
+services:
+  - type: web
+    name: docuguard
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NODE_ENV
+        value: production
+      - key: GROQ_API_KEY
+        sync: false # set manually in Render dashboard (never commit keys)
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+        sync: false

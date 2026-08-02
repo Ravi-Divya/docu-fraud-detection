@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js build output
+.next/
+out/
+build/
+
+# Environment - never commit keys!
+.env
+.env.local
+.env*.local
+.env.production
+.env.development
+
+# Render / misc
+.vercel/
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+.snowflake/
+.v0-trash/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
+
+# Datasets - large archives should not be committed
+datasets/*.tgz
+datasets/*.zip
+datasets/*.tar.gz
+datasets/**/*.zip
+
+# TypeScript incremental build cache
+tsconfig.tsbuildinfo

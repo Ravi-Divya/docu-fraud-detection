@@ -4,8 +4,6 @@ AI-powered document authentication platform. Upload a document, photo, or
 signature — DocuGuard runs OCR forensics, pixel analysis, and AI review to
 detect forged documents, tampered signatures, and manipulated photos.
 
-![Deploy](https://img.shields.io/badge/Deploy-Render%20Ready-green)
-
 ## How It Works (Current Flow)
 
 ```
@@ -111,30 +109,6 @@ npm run dev
 
 In **Scanner → Document Scanner → Try a Sample Document**, run the pipeline
 against pre-bundled authentic/tampered samples — no upload needed.
-
-## Deploying to Render
-
-### Option A — Render Blueprint (recommended)
-
-1. Push this repository to GitHub.
-2. In Render: **New → Blueprint**, and select the repo.
-3. Render reads `render.yaml` and creates the web service automatically.
-4. In the service **Environment** tab, set `GROQ_API_KEY`.
-5. Deploy and open the live URL.
-
-### Option B — Manual web service
-
-| Setting | Value |
-|---------|-------|
-| Runtime | Node |
-| Build Command | `npm install && npm run build` |
-| Start Command | `npm start` |
-| Node version | **22** (required by Next.js 16 / pdfjs-dist) |
-| Health check | `/` |
-
-Add `GROQ_API_KEY` as an environment variable. Render's free tier works fine —
-all heavy processing (OCR, forensics) runs in the browser; the server only
-handles AI text review.
 
 ## Environment Variables
 

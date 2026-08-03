@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { Camera, Upload, CheckCircle2, AlertTriangle, UserCheck, X, FileImage, Check, Info } from 'lucide-react';
+import { Camera, Upload, UserCheck, X, Check, Download } from 'lucide-react';
+import { downloadPDFReport } from '@/lib/pdf-report';
+import { verifyFaces, warmUpFaceModels, type FaceVerifyResult } from '@/lib/face-verify';
 
 interface ModuleReport {
   score: number;
@@ -21,8 +23,20 @@ export default function PhotoMatch({ onUpdateReport }: PhotoMatchProps) {
   const [isChecking, setIsChecking] = useState(false);
   const [result, setResult] = useState<'none' | 'match' | 'mismatch'>('none');
   const [report, setReport] = useState<ModuleReport | null>(null);
+  const [verification, setVerification] = useState<FaceVerifyResult | null>(null);
+  const [loadingModels, setLoadingModels] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  // Attach the stream once the <video> element is mounted (it only renders
+  // after isLiveStream becomes true).
+  useEffect(() => {
+    if (isLiveStream && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [isLiveStream]);
 
   const handleDocumentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -36,9 +50,7 @@ export default function PhotoMatch({ onUpdateReport }: PhotoMatchProps) {
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
+      streamRef.current = stream;
       setIsLiveStream(true);
       setLiveImage(null);
       setResult('none');
@@ -49,6 +61,10 @@ export default function PhotoMatch({ onUpdateReport }: PhotoMatchProps) {
   };
 
   const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
       stream.getTracks().forEach(track => track.stop());
@@ -73,33 +89,41 @@ export default function PhotoMatch({ onUpdateReport }: PhotoMatchProps) {
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
         const dataUrl = canvas.toDataURL('image/jpeg');
         setLiveImage(dataUrl);
-        stopCamera();
       }
     }
   };
 
-  const verifyIdentity = () => {
+  const verifyIdentity = async () => {
     if (!documentImage || !liveImage) return;
     setIsChecking(true);
-    setTimeout(() => {
-      setIsChecking(false);
-      const isMatch = Math.random() > 0.3;
-      const scoreValue = isMatch ? 97 : 34;
+    setVerification(null);
+    setLoadingModels(true);
+    try {
+      await warmUpFaceModels();
+      setLoadingModels(false);
+      const verdict = await verifyFaces(documentImage, liveImage);
+      setVerification(verdict);
+
+      const isMatch = verdict.ok && verdict.isMatch;
+      const scoreValue = isMatch ? verdict.similarity : 34;
       const riskValue = isMatch ? 'LOW' : 'HIGH';
       const statusValue = isMatch ? 'Authentic' : 'Mismatch';
-      
+
       const newReport: ModuleReport = {
         score: scoreValue,
         status: statusValue,
         risk: riskValue as any,
-        confidence: isMatch ? 98 : 91,
+        confidence: isMatch ? verdict.confidence : Math.min(verdict.confidence, 95),
         isCompleted: true,
         details: {
-          fileName: 'live_facial_biometrics.jpg',
-          resolution: '1280 x 720',
-          imageSize: '240 KB',
-          format: 'JPEG'
-        }
+          descriptorDistance: verdict.ok
+            ? verdict.message.split('—')[1]?.trim().split(' ')[0] ?? 'N/A'
+            : 'N/A',
+          idFaceDetected: verdict.idFaceDetected ? 'Yes' : 'No',
+          liveFaceDetected: verdict.liveFaceDetected ? 'Yes' : 'No',
+          photoQuality: verdict.quality,
+          similarity: `${verdict.similarity}%`,
+        },
       };
 
       setReport(newReport);
@@ -107,7 +131,60 @@ export default function PhotoMatch({ onUpdateReport }: PhotoMatchProps) {
       if (onUpdateReport) {
         onUpdateReport(newReport);
       }
-    }, 2500);
+    } catch (e: any) {
+      setLoadingModels(false);
+      setVerification({
+        ok: false,
+        message: e?.message || 'Face verification failed. Please try again.',
+        isMatch: false,
+        similarity: 0,
+        confidence: 0,
+        idFaceDetected: false,
+        liveFaceDetected: false,
+        idSharpness: 0,
+        liveSharpness: 0,
+        quality: 'Low',
+      });
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
+  const handleDownloadReport = () => {
+    if (!report) return;
+    downloadPDFReport(
+      {
+        title: 'DocuGuard Forensic Report - Photo Match',
+        subtitle: 'Live facial biometric verification',
+        generatedAt: new Date().toLocaleString(),
+        rows: [
+          { label: 'Status', value: report.status },
+          { label: 'Score', value: `${report.score}/100` },
+          { label: 'Risk Level', value: report.risk },
+          { label: 'Confidence', value: `${report.confidence}%` },
+          ...Object.entries(report.details ?? {}).map(([k, v]) => ({
+            label: k.charAt(0).toUpperCase() + k.slice(1),
+            value: String(v),
+          })),
+        ],
+        sections: [
+          {
+            heading: 'VERIFICATION CHECKS',
+            lines: verification
+              ? [
+                  `Facial similarity: ${verification.similarity}%`,
+                  `Descriptor distance: ${verification.message.split('—')[1]?.trim() ?? 'N/A'}`,
+                  `Face detected in ID photo: ${verification.idFaceDetected ? 'Yes' : 'No'}`,
+                  `Face detected in live capture: ${verification.liveFaceDetected ? 'Yes' : 'No'}`,
+                  `Photo quality: ${verification.quality}`,
+                  `Live capture sharpness: ${Math.round(verification.liveSharpness)}/100`,
+                ]
+              : [],
+          },
+        ],
+      },
+      `docuguard-photo-match-report-${Date.now()}.pdf`
+    );
   };
 
   const getRiskColor = (level: string) => {
@@ -169,11 +246,55 @@ export default function PhotoMatch({ onUpdateReport }: PhotoMatchProps) {
               <div className="w-full border-2 border-slate-200 bg-slate-50 rounded-2xl p-2 text-center h-64 relative overflow-hidden flex flex-col items-center justify-center">
                 {isLiveStream ? (
                   <>
-                    <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover rounded-xl" />
-                    <button onClick={captureLiveImage} className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-2 rounded-full font-bold shadow-lg hover:bg-blue-700">
-                      Take Photo
-                    </button>
-                    <button onClick={stopCamera} className="absolute top-4 right-4 bg-red-500 text-white p-2 rounded-full shadow hover:bg-red-600">
+                    <video ref={videoRef} autoPlay playsInline muted className={`w-full h-full object-cover rounded-xl ${isChecking ? 'brightness-90' : ''}`} />
+
+                    {/* captured snapshot preview — camera stays ON */}
+                    {liveImage && !isChecking && (
+                      <div className="absolute top-3 left-3 flex items-center gap-2 bg-white/90 backdrop-blur rounded-xl p-1.5 pr-3 shadow-lg">
+                        <img src={liveImage} alt="Captured" className="w-12 h-12 object-cover rounded-lg border border-green-200" />
+                        <div className="text-left">
+                          <p className="text-xs font-bold text-green-700 flex items-center gap-1"><Check className="w-3 h-3" /> Photo captured</p>
+                          <p className="text-[11px] text-slate-500">Live feed still running</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* verifying overlay — live feed stays visible behind */}
+                    {isChecking && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-900/40 backdrop-blur-[2px] rounded-xl">
+                        <div className="relative w-16 h-16">
+                          <div className="absolute inset-0 rounded-full border-4 border-white/30"></div>
+                          <div className="absolute inset-0 rounded-full border-4 border-green-400 border-t-transparent animate-spin"></div>
+                          <UserCheck className="absolute inset-0 m-auto w-7 h-7 text-white" />
+                        </div>
+                        <p className="text-white font-bold text-sm tracking-wide animate-pulse">
+                          {loadingModels ? 'Loading AI face recognition models...' : 'Verifying Facial Biometrics...'}
+                        </p>
+                        <p className="text-white/75 text-xs">
+                          {loadingModels ? 'Downloading models (one time, ~12 MB)' : 'Comparing face descriptors in real time'}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* result badge on live feed */}
+                    {result !== 'none' && !isChecking && (
+                      <div className={`absolute top-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-lg ${
+                        result === 'match' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+                      }`}>
+                        {result === 'match' ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
+                        {result === 'match' ? 'Match' : 'Mismatch'}
+                      </div>
+                    )}
+
+                    {/* take / retake photo — hidden while verifying */}
+                    {!isChecking && (
+                      <button onClick={captureLiveImage} className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-2 rounded-full font-bold shadow-lg hover:bg-blue-700">
+                        {liveImage ? 'Retake Photo' : 'Take Photo'}
+                      </button>
+                    )}
+
+                    {/* manual stop camera */}
+                    <button onClick={stopCamera} disabled={isChecking} title="Stop camera" className="absolute bottom-4 right-4 bg-red-500 text-white p-2 rounded-full shadow hover:bg-red-600 disabled:opacity-40">
                       <X className="w-4 h-4" />
                     </button>
                   </>
@@ -181,7 +302,7 @@ export default function PhotoMatch({ onUpdateReport }: PhotoMatchProps) {
                   <div className="relative h-full w-full">
                     <img src={liveImage} alt="Live Capture" className="w-full h-full object-cover rounded-xl" />
                     <button onClick={startCamera} className="absolute top-4 right-4 bg-white/80 backdrop-blur text-slate-800 px-3 py-1 text-sm rounded-full font-medium shadow hover:bg-white">
-                      Retake
+                      Restart Camera
                     </button>
                   </div>
                 ) : (
@@ -206,206 +327,74 @@ export default function PhotoMatch({ onUpdateReport }: PhotoMatchProps) {
               {isChecking ? <UserCheck className="w-6 h-6 animate-pulse" /> : <UserCheck className="w-6 h-6" />}
               {isChecking ? 'Verifying Facial Biometrics...' : 'Verify Identity Match'}
             </button>
+            {isChecking && (
+              <p className="mt-3 text-xs text-slate-500 flex items-center justify-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                Live camera stays on while the check runs — you stay visible during verification.
+              </p>
+            )}
           </div>
 
-          {/* Forensic Report Display */}
+          {/* Result */}
           {result !== 'none' && !isChecking && report && (
-            <div className="mt-12 space-y-8 border-t border-slate-200 pt-8">
-              <div className="text-center">
-                <span className={`inline-block px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest ${
-                  result === 'match' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+            <div className="mt-10 border-t border-slate-200 pt-8">
+              <div className="mx-auto max-w-xl rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+                <div className={`mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full ${
+                  result === 'match' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
                 }`}>
-                  {result === 'match' ? 'Biometrics Match Verified' : 'Biometrics Mismatch Alert'}
-                </span>
-                <h3 className="text-3xl font-extrabold text-slate-900 mt-2">Photo Match Forensic Report</h3>
-              </div>
-
-              {/* Basic Information */}
-              <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-                <h4 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-                  <FileImage className="w-5 h-5 text-blue-600" />
-                  Basic Information
-                </h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-left">
+                  {result === 'match' ? <Check className="h-8 w-8" /> : <X className="h-8 w-8" />}
+                </div>
+                <p className={`text-sm font-black uppercase tracking-widest ${result === 'match' ? 'text-green-700' : 'text-red-700'}`}>
+                  {result === 'match' ? 'Verified' : 'Mismatch Detected'}
+                </p>
+                <h3 className="mt-2 text-3xl font-extrabold text-slate-900">
+                  {result === 'match' ? 'Identity confirmed' : 'Face does not match'}
+                </h3>
+                <p className="mt-2 text-sm text-slate-600">
+                  {result === 'match'
+                    ? 'The live photo and the ID document show the same person.'
+                    : 'The live photo does not match the uploaded ID document.'}
+                </p>
+                <div className="mt-6 flex items-center justify-center gap-8">
                   <div>
-                    <p className="text-xs text-slate-500 font-semibold uppercase">File Name</p>
-                    <p className="text-sm font-bold text-slate-800 truncate" title={report.details.fileName}>{report.details.fileName}</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Score</p>
+                    <p className="text-3xl font-black text-slate-900">{report.score}<span className="text-base font-semibold text-slate-400">/100</span></p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500 font-semibold uppercase">Resolution</p>
-                    <p className="text-sm font-bold text-slate-800">{report.details.resolution}</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Risk</p>
+                    <p className={`mt-1 inline-block rounded-full px-3 py-1 text-xs font-black uppercase tracking-wider ${result === 'match' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                      {result === 'match' ? 'Low' : 'High'}
+                    </p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500 font-semibold uppercase">Image Size</p>
-                    <p className="text-sm font-bold text-slate-800">{report.details.imageSize}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500 font-semibold uppercase">Format</p>
-                    <p className="text-sm font-bold text-slate-800">{report.details.format}</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Confidence</p>
+                    <p className="text-3xl font-black text-slate-900">{report.confidence}%</p>
                   </div>
                 </div>
+                <button
+                  onClick={handleDownloadReport}
+                  className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-8 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-indigo-700"
+                >
+                  <Download className="h-4 w-4" />
+                  Download PDF Report
+                </button>
               </div>
 
-              {/* AI Detection Results */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden text-left">
-                <div className="p-6 border-b border-slate-100 bg-slate-50/50">
-                  <h4 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                    AI Detection Results
-                  </h4>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50 text-xs font-bold text-slate-500 uppercase">
-                        <th className="px-6 py-4">Check</th>
-                        <th className="px-6 py-4">Status</th>
-                        <th className="px-6 py-4">Confidence</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-sm">
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Face Match</td>
-                        <td className="px-6 py-4">
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                            result === 'match' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                          }`}>
-                            {result === 'match' ? '98% Match' : '14% Match'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 font-bold text-slate-600">{result === 'match' ? '98%' : '99%'}</td>
-                      </tr>
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Fake Image Detection</td>
-                        <td className="px-6 py-4">
-                          <span className="font-semibold text-slate-700">{result === 'match' ? 'No' : 'Yes'}</span>
-                        </td>
-                        <td className="px-6 py-4 font-bold text-slate-600">{result === 'match' ? '97%' : '92%'}</td>
-                      </tr>
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Image Edited</td>
-                        <td className="px-6 py-4 font-semibold text-slate-700">{result === 'match' ? 'No' : 'Yes'}</td>
-                        <td className="px-6 py-4 font-bold text-slate-600">94%</td>
-                      </tr>
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Photoshop Detected</td>
-                        <td className="px-6 py-4 font-semibold text-slate-700">{result === 'match' ? 'No' : 'Yes'}</td>
-                        <td className="px-6 py-4 font-bold text-slate-600">90%</td>
-                      </tr>
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Blur Detection</td>
-                        <td className="px-6 py-4">
-                          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
-                            Low
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 font-bold text-slate-600">96%</td>
-                      </tr>
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Deepfake Detection</td>
-                        <td className="px-6 py-4 font-semibold text-slate-700">{result === 'match' ? 'No' : 'Yes'}</td>
-                        <td className="px-6 py-4 font-bold text-slate-600">99%</td>
-                      </tr>
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">EXIF Metadata</td>
-                        <td className="px-6 py-4">
-                          <span className={`font-semibold ${result === 'match' ? 'text-slate-700' : 'text-red-600'}`}>
-                            {result === 'match' ? 'Available' : 'Removed'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 font-bold text-slate-600">95%</td>
-                      </tr>
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Compression Artifacts</td>
-                        <td className="px-6 py-4">
-                          <span className={`font-semibold ${result === 'match' ? 'text-slate-700' : 'text-red-600'}`}>
-                            {result === 'match' ? 'Normal' : 'Abnormal'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 font-bold text-slate-600">92%</td>
-                      </tr>
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Clone Detection</td>
-                        <td className="px-6 py-4 font-semibold text-slate-700">{result === 'match' ? 'No' : 'Yes'}</td>
-                        <td className="px-6 py-4 font-bold text-slate-600">93%</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* AI Prediction */}
-              <div className="bg-slate-50 border-l-4 border-blue-600 rounded-r-xl p-5 shadow-sm text-left">
-                <h5 className="font-bold text-slate-900 mb-2 flex items-center gap-2 text-sm">
-                  <Info className="w-4 h-4 text-blue-600" />
-                  AI Prediction
-                </h5>
-                <blockquote className="text-slate-700 italic text-sm leading-relaxed">
-                  {result === 'match' 
-                    ? `Uploaded image matches the reference with 98% similarity. No deepfake indicators were found. Minor compression artifacts are normal.`
-                    : `Biometric matching failed with only 14% similarity. Extreme pixel tampering and compression patterns matching photoshop cloning tools were detected in the face segment.`
-                  }
-                </blockquote>
-              </div>
-
-              {/* AI Recommendation & Score */}
-              <div className="grid md:grid-cols-2 gap-6 text-left">
-                {/* AI Recommendations */}
-                <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col justify-between">
-                  <div>
-                    <h4 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-                      <Check className="w-5 h-5 text-emerald-600" />
-                      AI Recommendation
-                    </h4>
-                    <ul className="space-y-3">
-                      {result === 'match' ? (
-                        <>
-                          <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                            <span className="text-emerald-500 font-bold">✓</span>
-                            <span>Image is suitable for verification.</span>
-                          </li>
-                          <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                            <span className="text-emerald-500 font-bold">✓</span>
-                            <span>Original image is recommended for legal use.</span>
-                          </li>
-                          <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                            <span className="text-emerald-500 font-bold">✓</span>
-                            <span>No further review required.</span>
-                          </li>
-                        </>
-                      ) : (
-                        <>
-                          <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                            <span className="text-red-500 font-bold">✗</span>
-                            <span>Do not approve verification; face details mismatch.</span>
-                          </li>
-                          <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                            <span className="text-red-500 font-bold">✗</span>
-                            <span>Flag session for suspected identity impersonation.</span>
-                          </li>
-                          <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                            <span className="text-red-500 font-bold">✗</span>
-                            <span>Require live video presence validation.</span>
-                          </li>
-                        </>
-                      )}
-                    </ul>
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                {verification &&
+                  [
+                    { label: 'Facial similarity', ok: result === 'match', detail: `${verification.similarity}%` },
+                    { label: 'Face in ID photo', ok: verification.idFaceDetected, detail: verification.idFaceDetected ? 'Detected' : 'Not found' },
+                    { label: 'Face in live capture', ok: verification.liveFaceDetected, detail: verification.liveFaceDetected ? 'Detected' : 'Not found' },
+                    { label: 'Photo quality', ok: verification.quality !== 'Low', detail: verification.quality },
+                  ].map((row) => (
+                  <div key={row.label} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm">
+                    <span className="font-semibold text-slate-700">{row.label}</span>
+                    <span className={`flex items-center gap-1.5 font-bold ${row.ok ? 'text-green-700' : 'text-red-700'}`}>
+                      {row.ok ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />} {row.detail}
+                    </span>
                   </div>
-                </div>
-
-                {/* Overall Score */}
-                {(() => {
-                  const colors = getRiskColor(report.risk);
-                  return (
-                    <div className={`rounded-2xl p-6 border ${colors.border} ${colors.bg} flex flex-col items-center justify-center text-center shadow-sm`}>
-                      <p className="text-sm font-extrabold text-slate-700 tracking-wider uppercase mb-2">Image Trust Score</p>
-                      <div className="text-5xl font-black text-slate-900 mb-2">{report.score} <span className="text-2xl font-semibold text-slate-500">/ 100</span></div>
-                      <div className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider ${colors.badge}`}>
-                        Risk Level : {colors.indicator}
-                      </div>
-                    </div>
-                  );
-                })()}
+                ))}
               </div>
             </div>
           )}

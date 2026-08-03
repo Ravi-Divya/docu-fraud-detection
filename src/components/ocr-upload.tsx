@@ -11,6 +11,14 @@ interface OCRUploadProps {
     confidence: number;
     language: string;
     processingTime: number;
+    pages: number;
+    fileInfo?: {
+      name: string;
+      type: string;
+      size: string;
+      date: string;
+      pages: number;
+    };
     forensics?: ForensicsResult;
   }) => void;
   isLoading: boolean;
@@ -54,9 +62,31 @@ export default function OCRUpload({ onResult, isLoading, setIsLoading }: OCRUplo
   const [showSamples, setShowSamples] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
+const getFileTypeLabel = (file: File): string => {
+  const type = file.type;
+  if (type === 'application/pdf') return 'PDF Document';
+  if (type.includes('word')) return 'Word Document';
+  if (type === 'image/jpeg' || type === 'image/jpg') return 'JPEG Image';
+  if (type === 'image/png') return 'PNG Image';
+  if (type === 'image/webp') return 'WebP Image';
+  if (type.startsWith('image/')) return 'Image Document';
+  return 'Document';
+};
+
+const formatFileSize = (bytes: number): string => {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
+};
+
   const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
       stream.getTracks().forEach((track) => track.stop());
@@ -69,10 +99,19 @@ export default function OCRUpload({ onResult, isLoading, setIsLoading }: OCRUplo
     return () => stopCamera();
   }, []);
 
+  // Attach the stream once the <video> element is mounted (it only renders
+  // after isLiveStream becomes true).
+  useEffect(() => {
+    if (isLiveStream && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [isLiveStream]);
+
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      if (videoRef.current) videoRef.current.srcObject = stream;
+      streamRef.current = stream;
       setIsLiveStream(true);
     } catch {
       alert('Unable to access camera. Please check browser permissions.');
@@ -137,6 +176,14 @@ export default function OCRUpload({ onResult, isLoading, setIsLoading }: OCRUplo
         confidence: result.confidence,
         language: result.language || 'English',
         processingTime: Date.now() - startTime,
+        pages: result.pages,
+        fileInfo: {
+          name: file.name,
+          type: getFileTypeLabel(file),
+          size: formatFileSize(file.size),
+          date: new Date().toLocaleDateString(),
+          pages: result.pages,
+        },
         forensics: result.forensics,
       });
     } catch (error) {
@@ -185,22 +232,21 @@ export default function OCRUpload({ onResult, isLoading, setIsLoading }: OCRUplo
     <div className="mx-auto max-w-2xl space-y-6">
       {/* Document type selector */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="mb-3 text-sm font-bold text-slate-800">1. Select document type</p>
-        <div className="flex flex-wrap gap-2">
+        <label htmlFor="doc-type" className="mb-2 block text-sm font-bold text-slate-800">
+          Document type
+        </label>
+        <select
+          id="doc-type"
+          value={documentType}
+          onChange={(e) => setDocumentType(e.target.value as DocumentCategory)}
+          className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
           {documentTypes.map((doc) => (
-            <button
-              key={doc.value}
-              onClick={() => setDocumentType(doc.value)}
-              className={`rounded-full px-4 py-2 text-xs font-bold transition-all ${
-                documentType === doc.value
-                  ? 'bg-blue-600 text-white shadow-md'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
+            <option key={doc.value} value={doc.value}>
               {doc.emoji} {doc.label}
-            </button>
+            </option>
           ))}
-        </div>
+        </select>
       </div>
 
       {isLiveStream && (
@@ -255,9 +301,9 @@ export default function OCRUpload({ onResult, isLoading, setIsLoading }: OCRUplo
             <>
               <Loader2 className="h-12 w-12 animate-spin text-blue-500" />
               <div className="text-center">
-                <p className="text-lg font-semibold text-slate-900">Processing your file...</p>
+                <p className="text-lg font-semibold text-slate-900">Scanning your document...</p>
                 <p className="mt-1 text-sm text-slate-500">
-                  Running OCR + pixel forensics + AI review
+                  Checking for signs of tampering
                 </p>
               </div>
             </>

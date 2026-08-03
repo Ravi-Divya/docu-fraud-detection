@@ -3,6 +3,61 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ─── DocuGuard theme: off-white + sky blue ─── */
+@theme {
+  /* soft blue-tinted neutral (off-white surfaces, near-navy text) */
+  --color-slate-50: #f5f8fb;
+  --color-slate-100: #e9f0f7;
+  --color-slate-200: #d5e1ec;
+  --color-slate-300: #b3c6d9;
+  --color-slate-400: #86a1bc;
+  --color-slate-500: #5e7a97;
+  --color-slate-600: #45607c;
+  --color-slate-700: #354c64;
+  --color-slate-800: #24364a;
+  --color-slate-900: #16242f;
+  --color-slate-950: #0c161f;
+
+  /* blue → sky blue */
+  --color-blue-50: #f0f9ff;
+  --color-blue-100: #e0f2fe;
+  --color-blue-200: #bae6fd;
+  --color-blue-300: #7dd3fc;
+  --color-blue-400: #38bdf8;
+  --color-blue-500: #0ea5e9;
+  --color-blue-600: #0284c7;
+  --color-blue-700: #0369a1;
+  --color-blue-800: #075985;
+  --color-blue-900: #0c4a6e;
+  --color-blue-950: #082f49;
+
+  /* indigo → deep sky */
+  --color-indigo-50: #e0f2fe;
+  --color-indigo-100: #bae6fd;
+  --color-indigo-200: #7dd3fc;
+  --color-indigo-300: #38bdf8;
+  --color-indigo-400: #0ea5e9;
+  --color-indigo-500: #0284c7;
+  --color-indigo-600: #0369a1;
+  --color-indigo-700: #075985;
+  --color-indigo-800: #0c4a6e;
+  --color-indigo-900: #082f49;
+  --color-indigo-950: #082f49;
+
+  /* purple → sky */
+  --color-purple-50: #f0f9ff;
+  --color-purple-100: #e0f2fe;
+  --color-purple-200: #bae6fd;
+  --color-purple-300: #7dd3fc;
+  --color-purple-400: #38bdf8;
+  --color-purple-500: #0ea5e9;
+  --color-purple-600: #0284c7;
+  --color-purple-700: #0369a1;
+  --color-purple-800: #075985;
+  --color-purple-900: #0c4a6e;
+  --color-purple-950: #082f49;
+}
+
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: var(--font-geist-sans), 'Geist Fallback';
@@ -49,38 +104,38 @@
 
 :root {
   color-scheme: light;
-  --background: #ffffff;
-  --foreground: #1a1a1a;
-  --card: #f8f9fa;
-  --card-foreground: #1a1a1a;
+  --background: #f5f8fb;
+  --foreground: #16242f;
+  --card: #ffffff;
+  --card-foreground: #16242f;
   --popover: #ffffff;
-  --popover-foreground: #1a1a1a;
-  --primary: #3b82f6;
+  --popover-foreground: #16242f;
+  --primary: #0ea5e9;
   --primary-foreground: #ffffff;
-  --secondary: #e0e7ff;
-  --secondary-foreground: #3b82f6;
-  --muted: #f3f4f6;
-  --muted-foreground: #6b7280;
-  --accent: #3b82f6;
+  --secondary: #e0f2fe;
+  --secondary-foreground: #0284c7;
+  --muted: #e9f0f7;
+  --muted-foreground: #5e7a97;
+  --accent: #0ea5e9;
   --accent-foreground: #ffffff;
   --destructive: #ef4444;
-  --border: #e5e7eb;
-  --input: #f3f4f6;
-  --ring: #3b82f6;
-  --chart-1: #3b82f6;
-  --chart-2: #60a5fa;
-  --chart-3: #93c5fd;
-  --chart-4: #bfdbfe;
-  --chart-5: #dbeafe;
+  --border: #d5e1ec;
+  --input: #e9f0f7;
+  --ring: #0ea5e9;
+  --chart-1: #0ea5e9;
+  --chart-2: #38bdf8;
+  --chart-3: #7dd3fc;
+  --chart-4: #bae6fd;
+  --chart-5: #e0f2fe;
   --radius: 0.625rem;
   --sidebar: #ffffff;
-  --sidebar-foreground: #1a1a1a;
-  --sidebar-primary: #3b82f6;
+  --sidebar-foreground: #16242f;
+  --sidebar-primary: #0ea5e9;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e0e7ff;
-  --sidebar-accent-foreground: #3b82f6;
-  --sidebar-border: #e5e7eb;
-  --sidebar-ring: #3b82f6;
+  --sidebar-accent: #e0f2fe;
+  --sidebar-accent-foreground: #0284c7;
+  --sidebar-border: #d5e1ec;
+  --sidebar-ring: #0ea5e9;
 }
 
 .dark {

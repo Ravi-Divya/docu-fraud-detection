@@ -22,14 +22,6 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
         url: '/icon.svg',
         type: 'image/svg+xml',
       },
@@ -40,7 +32,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   colorScheme: 'light',
-  themeColor: '#ffffff',
+  themeColor: '#f5f8fb',
 }
 
 export default function RootLayout({
@@ -50,7 +42,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body className="font-sans antialiased bg-white text-slate-900 flex min-h-screen flex-col">
+      <body className="font-sans antialiased bg-slate-50 text-slate-900 flex min-h-screen flex-col">
         <Navbar />
         <div className="flex-1">{children}</div>
         <Footer />

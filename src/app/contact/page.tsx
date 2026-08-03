@@ -36,7 +36,7 @@ export default function ContactPage() {
               </p>
               <button
                 onClick={() => setStatus('idle')}
-                className="mt-8 rounded-xl bg-slate-900 px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-slate-800"
+                className="mt-8 rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-blue-700"
               >
                 Send another message
               </button>

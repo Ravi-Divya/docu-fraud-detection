@@ -4,14 +4,13 @@ export const dynamic = 'force-dynamic';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, FileText, Camera, FileSignature, Printer, LayoutDashboard, Loader2 } from 'lucide-react';
+import { ArrowLeft, FileText, Camera, FileSignature, Printer, Loader2 } from 'lucide-react';
 import OCRUpload from '@/components/ocr-upload';
 import OCRResult from '@/components/ocr-result';
 import type { ForensicsResult } from '@/lib/forensics-analyzer';
 import PhotoMatch from '@/components/photo-match';
 import SignatureCheck from '@/components/signature-check';
 import LiveStream from '@/components/live-stream';
-import DashboardSummary from '@/components/dashboard-summary';
 import { getLoggedInUser } from '@/lib/auth';
 
 interface ExtractionResult {
@@ -19,6 +18,14 @@ interface ExtractionResult {
   confidence: number;
   language: string;
   processingTime: number;
+  pages: number;
+  fileInfo?: {
+    name: string;
+    type: string;
+    size: string;
+    date: string;
+    pages: number;
+  };
   forensics?: ForensicsResult;
 }
 
@@ -31,14 +38,13 @@ export interface ModuleReport {
   details?: any;
 }
 
-type TabId = 'dashboard' | 'document' | 'photo' | 'signature' | 'hardware';
+type TabId = 'document' | 'photo' | 'signature' | 'hardware';
 
-const tabs: { id: TabId; label: string; icon: any; activeClass: string }[] = [
-  { id: 'dashboard', label: 'Dashboard Summary', icon: LayoutDashboard, activeClass: 'bg-slate-900 text-white shadow-md' },
-  { id: 'document', label: 'Document Scanner', icon: FileText, activeClass: 'bg-blue-600 text-white shadow-md' },
-  { id: 'photo', label: 'Photo Match', icon: Camera, activeClass: 'bg-green-600 text-white shadow-md' },
-  { id: 'signature', label: 'Signature Check', icon: FileSignature, activeClass: 'bg-indigo-600 text-white shadow-md' },
-  { id: 'hardware', label: 'Hardware Stream', icon: Printer, activeClass: 'bg-purple-600 text-white shadow-md' },
+const tabs: { id: TabId; label: string; icon: any }[] = [
+  { id: 'document', label: 'Document Scanner', icon: FileText },
+  { id: 'photo', label: 'Photo Match', icon: Camera },
+  { id: 'signature', label: 'Signature Check', icon: FileSignature },
+  { id: 'hardware', label: 'Hardware Stream', icon: Printer },
 ];
 
 function emptyReport(): ModuleReport {
@@ -46,14 +52,13 @@ function emptyReport(): ModuleReport {
 }
 
 export default function ScannerPage() {
-  const [activeTab, setActiveTab] = useState<TabId>('dashboard');
+  const [activeTab, setActiveTab] = useState<TabId>('document');
   const [result, setResult] = useState<ExtractionResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const router = useRouter();
 
   const [reports, setReports] = useState<Record<TabId, ModuleReport>>({
-    dashboard: emptyReport(),
     document: emptyReport(),
     photo: emptyReport(),
     signature: emptyReport(),
@@ -118,7 +123,7 @@ export default function ScannerPage() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-gradient-to-br from-slate-50 to-slate-100 py-10 px-4">
+    <main className="min-h-[calc(100vh-4rem)] bg-slate-50 py-10 px-4">
       <div className="mx-auto max-w-6xl">
         <button
           onClick={() => router.push('/')}
@@ -128,14 +133,14 @@ export default function ScannerPage() {
         </button>
 
         {/* Tabs Navigation */}
-        <div className="mb-10 flex flex-wrap justify-center gap-2 rounded-2xl border border-slate-200/80 bg-white/80 p-2 shadow-sm backdrop-blur-md">
+        <div className="mb-10 flex flex-wrap justify-center gap-2 rounded-2xl border border-slate-200/80 bg-white p-2 shadow-sm">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold transition-all ${
                 activeTab === tab.id
-                  ? tab.activeClass
+                  ? 'bg-blue-600 text-white shadow-md'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
@@ -145,10 +150,6 @@ export default function ScannerPage() {
         </div>
 
         {/* Tab Content */}
-        {activeTab === 'dashboard' && (
-          <DashboardSummary reports={reports} onTabChange={setActiveTab} />
-        )}
-
         {activeTab === 'document' && (
           <div>
             <div className="mb-10 text-center">
@@ -164,7 +165,7 @@ export default function ScannerPage() {
                 setIsLoading={setIsLoading}
               />
             ) : (
-              <OCRResult result={result} onReset={() => setResult(null)} />
+              <OCRResult result={result} fileInfo={result.fileInfo} onReset={() => setResult(null)} />
             )}
           </div>
         )}

@@ -3,6 +3,8 @@
 import { Copy, Download, RotateCcw } from 'lucide-react';
 import { useState, lazy, Suspense } from 'react';
 import type { ForensicsResult } from '@/lib/forensics-analyzer';
+import { downloadPDFReport } from '@/lib/pdf-report';
+import { getDetectionRows, getAIPrediction, getAIRecommendations } from '@/lib/forensics-report-content';
 
 const ForensicsDisplay = lazy(() => import('./forensics-display'));
 
@@ -14,6 +16,13 @@ interface OCRResultProps {
     processingTime: number;
     forensics?: ForensicsResult;
   };
+  fileInfo?: {
+    name: string;
+    type: string;
+    size: string;
+    date: string;
+    pages: number;
+  };
   onReset: () => void;
 }
 
@@ -24,7 +33,7 @@ const cleanText = (text: string): string => {
     .trim();
 };
 
-export default function OCRResult({ result, onReset }: OCRResultProps) {
+export default function OCRResult({ result, onReset, fileInfo }: OCRResultProps) {
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'original' | 'edited' | 'forensics'>('original');
 
@@ -41,14 +50,47 @@ export default function OCRResult({ result, onReset }: OCRResultProps) {
   };
 
   const handleDownload = () => {
-    const textToDownload = activeTab === 'edited' ? editedText : result.text;
-    const element = document.createElement('a');
-    const file = new Blob([textToDownload], { type: 'text/plain' });
-    element.href = URL.createObjectURL(file);
-    element.download = `docuguard-${activeTab}-text-${Date.now()}.txt`;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
+    const statusText = riskLevel === 'genuine' ? 'GENUINE' : riskLevel === 'suspicious' ? 'SUSPICIOUS' : 'FAKE';
+    const sections: { heading: string; lines: string[] }[] = [];
+
+    if (result.forensics) {
+      sections.push({
+        heading: 'AI DETECTION RESULTS',
+        lines: getDetectionRows(result.forensics).map(
+          (row) => `${row.check}: ${row.status} (AI Confidence: ${row.confidence})`
+        ),
+      });
+      sections.push({ heading: 'AI PREDICTION', lines: [getAIPrediction(result.forensics)] });
+      sections.push({
+        heading: 'AI RECOMMENDATION',
+        lines: getAIRecommendations(result.forensics),
+      });
+    }
+
+    sections.push({
+      heading: 'EXTRACTED TEXT',
+      lines: [editedText || '(No text could be extracted from this document.)'],
+    });
+
+    downloadPDFReport(
+      {
+        title: 'DocuGuard Forensic Report',
+        subtitle: fileInfo?.name ?? 'Document Scan',
+        generatedAt: new Date().toLocaleString(),
+        rows: [
+          { label: 'File Name', value: fileInfo?.name ?? '—' },
+          { label: 'File Type', value: fileInfo?.type ?? '—' },
+          { label: 'File Size', value: fileInfo?.size ?? '—' },
+          { label: 'Upload Date', value: fileInfo?.date ?? '—' },
+          { label: 'Number of Pages', value: fileInfo ? String(fileInfo.pages) : '—' },
+          { label: 'Authenticity Score', value: `${score}/100 (${statusText})` },
+          { label: 'Risk Level', value: riskLabel },
+          { label: 'OCR Confidence', value: `${result.confidence.toFixed(1)}%` },
+        ],
+        sections,
+      },
+      `docuguard-forensic-report-${Date.now()}.pdf`
+    );
   };
 
   const riskStyles: Record<string, { card: string; label: string; badge: string }> = {
@@ -178,7 +220,7 @@ export default function OCRResult({ result, onReset }: OCRResultProps) {
                   </div>
                 }
               >
-                <ForensicsDisplay forensics={result.forensics} />
+                <ForensicsDisplay forensics={result.forensics} fileInfo={fileInfo} />
               </Suspense>
             )}
           </div>
@@ -199,7 +241,7 @@ export default function OCRResult({ result, onReset }: OCRResultProps) {
           className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 font-semibold text-white shadow-sm transition-all hover:bg-indigo-700"
         >
           <Download className="h-5 w-5" />
-          Download TXT
+          Download PDF Report
         </button>
         <button
           onClick={onReset}

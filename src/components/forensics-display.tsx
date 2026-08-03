@@ -1,7 +1,8 @@
 'use client';
 
 import { ForensicsResult } from '@/lib/forensics-analyzer';
-import { AlertCircle, CheckCircle, AlertTriangle, FileText, Check, Info } from 'lucide-react';
+import { CheckCircle, FileText, Check, Info } from 'lucide-react';
+import { getDetectionRows, getAIPrediction, getAIRecommendations } from '@/lib/forensics-report-content';
 
 interface ForensicsDisplayProps {
   forensics: ForensicsResult;
@@ -70,27 +71,10 @@ export default function ForensicsDisplay({ forensics, fileInfo }: ForensicsDispl
   // Set values based on risk level
   const isGenuine = forensics.riskLevel === 'genuine';
   const isSuspicious = forensics.riskLevel === 'suspicious';
-  
-  const statusValues = {
-    authenticity: isGenuine ? 'Genuine' : isSuspicious ? 'Suspicious' : 'Fake',
-    tampering: isGenuine ? 'Not Detected' : 'Detected',
-    modification: isGenuine ? 'No' : 'Yes',
-    metadata: isGenuine ? 'No' : 'Yes',
-    ocr: isGenuine ? '98%' : '84%',
-    hidden: isGenuine ? 'Not Found' : 'Found',
-    duplicate: isGenuine ? 'No' : 'Yes',
-    blur: isGenuine ? 'Low' : isSuspicious ? 'Medium' : 'High'
-  };
 
-  const confidenceValues = {
-    authenticity: isGenuine ? '96%' : isSuspicious ? '74%' : '98%',
-    tampering: isGenuine ? '94%' : '81%',
-    modification: isGenuine ? '91%' : '88%',
-    metadata: isGenuine ? '88%' : '85%',
-    hidden: isGenuine ? '95%' : '90%',
-    duplicate: isGenuine ? '92%' : '89%',
-    blur: isGenuine ? '97%' : '94%'
-  };
+  const detectionRows = getDetectionRows(forensics);
+  const aiPrediction = getAIPrediction(forensics);
+  const recommendations = getAIRecommendations(forensics);
 
   return (
     <div className="space-y-8">
@@ -142,82 +126,43 @@ export default function ForensicsDisplay({ forensics, fileInfo }: ForensicsDispl
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
-              <tr>
-                <td className="px-6 py-4 font-semibold text-slate-700">Document Authenticity</td>
-                <td className="px-6 py-4">
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                    isGenuine ? 'bg-green-100 text-green-800' : isSuspicious ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
-                  }`}>
-                    {statusValues.authenticity}
-                  </span>
-                </td>
-                <td className="px-6 py-4 font-bold text-slate-600">{confidenceValues.authenticity}</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-4 font-semibold text-slate-700">Tampering Detection</td>
-                <td className="px-6 py-4">
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                    isGenuine ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                  }`}>
-                    {statusValues.tampering}
-                  </span>
-                </td>
-                <td className="px-6 py-4 font-bold text-slate-600">{confidenceValues.tampering}</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-4 font-semibold text-slate-700">Text Modification</td>
-                <td className="px-6 py-4">
-                  <span className={`font-semibold ${!isGenuine ? 'text-red-600' : 'text-slate-600'}`}>
-                    {statusValues.modification}
-                  </span>
-                </td>
-                <td className="px-6 py-4 font-bold text-slate-600">{confidenceValues.modification}</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-4 font-semibold text-slate-700">Metadata Modified</td>
-                <td className="px-6 py-4">
-                  <span className={`font-semibold ${!isGenuine ? 'text-red-600' : 'text-slate-600'}`}>
-                    {statusValues.metadata}
-                  </span>
-                </td>
-                <td className="px-6 py-4 font-bold text-slate-600">{confidenceValues.metadata}</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-4 font-semibold text-slate-700">OCR Accuracy</td>
-                <td className="px-6 py-4">
-                  <span className="font-bold text-blue-600">{statusValues.ocr}</span>
-                </td>
-                <td className="px-6 py-4 font-bold text-slate-400">-</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-4 font-semibold text-slate-700">Hidden Content</td>
-                <td className="px-6 py-4">
-                  <span className={`font-semibold ${!isGenuine ? 'text-red-600' : 'text-slate-600'}`}>
-                    {statusValues.hidden}
-                  </span>
-                </td>
-                <td className="px-6 py-4 font-bold text-slate-600">{confidenceValues.hidden}</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-4 font-semibold text-slate-700">Duplicate Content</td>
-                <td className="px-6 py-4">
-                  <span className={`font-semibold ${!isGenuine ? 'text-red-600' : 'text-slate-600'}`}>
-                    {statusValues.duplicate}
-                  </span>
-                </td>
-                <td className="px-6 py-4 font-bold text-slate-600">{confidenceValues.duplicate}</td>
-              </tr>
-              <tr>
-                <td className="px-6 py-4 font-semibold text-slate-700">Blur Detection</td>
-                <td className="px-6 py-4">
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                    isGenuine ? 'bg-blue-100 text-blue-800' : isSuspicious ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
-                  }`}>
-                    {statusValues.blur}
-                  </span>
-                </td>
-                <td className="px-6 py-4 font-bold text-slate-600">{confidenceValues.blur}</td>
-              </tr>
+              {detectionRows.map((row, index) => (
+                <tr key={row.check}>
+                  <td className="px-6 py-4 font-semibold text-slate-700">{row.check}</td>
+                  <td className="px-6 py-4">
+                    {index === 0 ? (
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                        isGenuine ? 'bg-green-100 text-green-800' : isSuspicious ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {row.status}
+                      </span>
+                    ) : index === 1 ? (
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                        isGenuine ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {row.status}
+                      </span>
+                    ) : index === 4 ? (
+                      <span className="font-bold text-blue-600">{row.status}</span>
+                    ) : index === 7 ? (
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                        isGenuine ? 'bg-blue-100 text-blue-800' : isSuspicious ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {row.status}
+                      </span>
+                    ) : (
+                      <span className={`font-semibold ${
+                        row.status === 'No' || row.status === 'Not Found' || row.status === 'Not Detected'
+                          ? 'text-slate-600'
+                          : 'text-red-600'
+                      }`}>
+                        {row.status}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 font-bold text-slate-600">{row.confidence}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -230,12 +175,7 @@ export default function ForensicsDisplay({ forensics, fileInfo }: ForensicsDispl
           AI Prediction
         </h5>
         <blockquote className="text-slate-700 italic text-sm leading-relaxed">
-          {isGenuine 
-            ? `This document appears Genuine with a 96% confidence. No major tampering was detected. Minor metadata changes were found but do not significantly affect authenticity.`
-            : isSuspicious 
-            ? `This document appears Suspicious with a 74% confidence. We detected potential layout tampering or irregular spacing that could indicate post-processing.`
-            : `This document is predicted to be Fake with a 98% confidence. Multiple high-severity photoshop cloning patterns and pixel anomalies were detected in the text areas.`
-          }
+          {aiPrediction}
         </blockquote>
       </div>
 
@@ -249,48 +189,14 @@ export default function ForensicsDisplay({ forensics, fileInfo }: ForensicsDispl
               AI Recommendation
             </h4>
             <ul className="space-y-3">
-              {isGenuine ? (
-                <>
-                  <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                    <span className="text-emerald-500 font-bold">✓</span>
-                    <span>Safe to use.</span>
-                  </li>
-                  <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                    <span className="text-emerald-500 font-bold">✓</span>
-                    <span>Verify original metadata if required.</span>
-                  </li>
-                  <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                    <span className="text-emerald-500 font-bold">✓</span>
-                    <span>Keep the original copy for legal purposes.</span>
-                  </li>
-                </>
-              ) : isSuspicious ? (
-                <>
-                  <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                    <span className="text-amber-500 font-bold">⚠</span>
-                    <span>Manual validation of text spacing recommended.</span>
-                  </li>
-                  <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                    <span className="text-amber-500 font-bold">⚠</span>
-                    <span>Request high-resolution scan of document.</span>
-                  </li>
-                </>
-              ) : (
-                <>
-                  <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                    <span className="text-red-500 font-bold">✗</span>
-                    <span>Reject this document immediately.</span>
-                  </li>
-                  <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                    <span className="text-red-500 font-bold">✗</span>
-                    <span>Flag account or transaction for fraud review.</span>
-                  </li>
-                  <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                    <span className="text-red-500 font-bold">✗</span>
-                    <span>Escalate to legal/forensics department.</span>
-                  </li>
-                </>
-              )}
+              {recommendations.map((rec, i) => (
+                <li key={i} className="flex items-start gap-2.5 text-sm text-slate-600">
+                  <span className={isGenuine ? 'text-emerald-500 font-bold' : isSuspicious ? 'text-amber-500 font-bold' : 'text-red-500 font-bold'}>
+                    {isGenuine ? '✓' : isSuspicious ? '⚠' : '✗'}
+                  </span>
+                  <span>{rec}</span>
+                </li>
+              ))}
             </ul>
           </div>
         </div>

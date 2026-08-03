@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { ShieldCheck, Search, Check, X, FileSignature, Upload, CheckCircle, Info } from 'lucide-react';
+import { ShieldCheck, Search, Check, X, FileSignature, Upload, Download } from 'lucide-react';
+import { downloadPDFReport } from '@/lib/pdf-report';
+import { analyzeSignature, type SignatureAnalysis } from '@/lib/signature-verify';
 
 interface ModuleReport {
   score: number;
@@ -19,6 +21,7 @@ export default function SignatureCheck({ onUpdateReport }: SignatureCheckProps) 
   const [result, setResult] = useState<'none' | 'match' | 'mismatch'>('none');
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [report, setReport] = useState<ModuleReport | null>(null);
+  const [analysis, setAnalysis] = useState<SignatureAnalysis | null>(null);
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -26,30 +29,37 @@ export default function SignatureCheck({ onUpdateReport }: SignatureCheckProps) 
       setUploadedImage(url);
       setResult('none');
       setReport(null);
+      setAnalysis(null);
     }
   };
 
-  const verifySignature = () => {
+  const verifySignature = async () => {
     if (!uploadedImage) return;
     setIsChecking(true);
-    setTimeout(() => {
-      setIsChecking(false);
-      const isMatch = Math.random() > 0.4;
-      const scoreValue = isMatch ? 94 : 29;
-      const riskValue = isMatch ? 'LOW' : 'HIGH';
+    setAnalysis(null);
+    try {
+      const verdict = await analyzeSignature(uploadedImage);
+      setAnalysis(verdict);
+
+      const isMatch = verdict.ok && verdict.score >= 70;
+      const scoreValue = isMatch ? verdict.score : Math.max(5, verdict.score);
+      const riskValue = isMatch ? 'LOW' : verdict.score >= 40 ? 'MEDIUM' : 'HIGH';
       const statusValue = isMatch ? 'Genuine' : 'Forgery';
-      
+
       const newReport: ModuleReport = {
         score: scoreValue,
         status: statusValue,
         risk: riskValue as any,
-        confidence: isMatch ? 95 : 93,
+        confidence: verdict.confidence,
         isCompleted: true,
         details: {
-          signatureId: `SIG-${1000 + Math.floor(Math.random() * 9000)}-B`,
-          referenceSignature: 'REF-SIG-JOHN-HANCOCK.png',
-          uploadTime: new Date().toLocaleTimeString()
-        }
+          inkCoverage: `${verdict.metrics.inkCoverage}%`,
+          strokeWidthCV: verdict.metrics.strokeWidthCV.toFixed(2),
+          pressureVariance: `${verdict.metrics.pressureVariance}`,
+          smoothness: `${verdict.metrics.smoothness}/100`,
+          components: verdict.metrics.components,
+          uploadTime: new Date().toLocaleTimeString(),
+        },
       };
 
       setReport(newReport);
@@ -57,283 +67,194 @@ export default function SignatureCheck({ onUpdateReport }: SignatureCheckProps) 
       if (onUpdateReport) {
         onUpdateReport(newReport);
       }
-    }, 2000);
-  };
-
-  const getRiskColor = (level: string) => {
-    switch (level) {
-      case 'LOW':
-        return { bg: 'bg-green-50/50', border: 'border-green-200', text: 'text-green-900', badge: 'bg-green-600 text-white', indicator: '🟢 LOW' };
-      case 'MEDIUM':
-        return { bg: 'bg-yellow-50/50', border: 'border-yellow-200', text: 'text-yellow-900', badge: 'bg-yellow-600 text-white', indicator: '🟡 MEDIUM' };
-      case 'HIGH':
-        return { bg: 'bg-red-50/50', border: 'border-red-200', text: 'text-red-900', badge: 'bg-red-600 text-white', indicator: '🔴 HIGH' };
-      default:
-        return { bg: 'bg-gray-50', border: 'border-gray-200', text: 'text-gray-900', badge: 'bg-gray-600 text-white', indicator: '⚪ UNKNOWN' };
+    } catch (e: any) {
+      setAnalysis({
+        ok: false,
+        message: e?.message || 'Signature analysis failed. Please try again.',
+        score: 0,
+        confidence: 0,
+        metrics: { inkCoverage: 0, strokeWidthCV: 0, pressureVariance: 0, smoothness: 0, components: 0 },
+      });
+    } finally {
+      setIsChecking(false);
     }
   };
 
+  const handleDownloadReport = () => {
+    if (!report) return;
+    downloadPDFReport(
+      {
+        title: 'DocuGuard Forensic Report - Signature Check',
+        subtitle: 'Signature authenticity verification',
+        generatedAt: new Date().toLocaleString(),
+        rows: [
+          { label: 'Status', value: report.status },
+          { label: 'Score', value: `${report.score}/100` },
+          { label: 'Risk Level', value: report.risk },
+          { label: 'Confidence', value: `${report.confidence}%` },
+          ...Object.entries(report.details ?? {}).map(([k, v]) => ({
+            label: k.charAt(0).toUpperCase() + k.slice(1),
+            value: String(v),
+          })),
+        ],
+        sections: [
+          {
+            heading: 'SIGNATURE CHECKS',
+            lines: analysis
+              ? [
+                  `Genuineness score: ${analysis.score}/100`,
+                  `Ink coverage: ${analysis.metrics.inkCoverage}%`,
+                  `Stroke width consistency (CV): ${analysis.metrics.strokeWidthCV} (lower = more uniform)`,
+                  `Pen pressure variance: ${analysis.metrics.pressureVariance}`,
+                  `Stroke smoothness: ${analysis.metrics.smoothness}/100`,
+                  `Connected components: ${analysis.metrics.components}`,
+                  analysis.message,
+                ]
+              : [],
+          },
+        ],
+      },
+      `docuguard-signature-report-${Date.now()}.pdf`
+    );
+  };
+
   return (
-    <div className="w-full">
-      <div className="max-w-5xl mx-auto">
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center justify-center p-3 bg-blue-100 rounded-2xl mb-4 text-blue-600">
-            <FileSignature className="w-10 h-10" />
+    <div className="mx-auto max-w-3xl">
+      <div className="mb-10 text-center">
+        <div className="mx-auto mb-4 inline-flex items-center justify-center rounded-2xl bg-blue-100 p-3 text-blue-600">
+          <FileSignature className="h-8 w-8" />
+        </div>
+        <h1 className="text-3xl font-extrabold text-slate-900">Signature Check</h1>
+        <p className="mt-2 text-slate-600">
+          Upload a signature to check whether it is genuine or forged.
+        </p>
+      </div>
+
+      <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+        <div className="grid md:grid-cols-2 gap-8 items-center">
+          {/* Upload area */}
+          <div className="space-y-6">
+            <h2 className="text-lg font-bold text-slate-800">Upload signature</h2>
+
+            <label className="block w-full border-2 border-dashed border-blue-200 bg-blue-50 hover:bg-blue-100 transition-colors rounded-2xl p-10 text-center cursor-pointer">
+              <input type="file" className="hidden" accept="image/*" onChange={handleUpload} />
+              {uploadedImage ? (
+                <div className="relative h-32 w-full">
+                  <img src={uploadedImage} alt="Uploaded signature" className="w-full h-full object-contain" />
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center text-blue-600">
+                  <Upload className="w-10 h-10 mb-3 opacity-80" />
+                  <span className="font-semibold">Click to upload signature image</span>
+                  <span className="text-sm text-slate-500 mt-2">JPG, PNG, WebP supported</span>
+                </div>
+              )}
+            </label>
+
+            <input
+              type="text"
+              placeholder="Account number or ID (optional)"
+              className="w-full border border-slate-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+
+            <button
+              onClick={verifySignature}
+              disabled={!uploadedImage || isChecking}
+              className="w-full bg-blue-600 text-white font-bold rounded-xl px-6 py-4 flex items-center justify-center gap-2 hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-md"
+            >
+              {isChecking ? <Search className="w-5 h-5 animate-spin" /> : <Search className="w-5 h-5" />}
+              {isChecking ? 'Checking...' : 'Check Signature'}
+            </button>
           </div>
-          <h1 className="text-4xl font-extrabold text-slate-900 mb-4">Bank Employee Signature Verification</h1>
-          <p className="text-lg text-slate-600">Upload a cropped signature or a signed document to verify its unique identity against the bank's database.</p>
+
+          {/* Status area */}
+          <div className="bg-slate-50 rounded-2xl border border-slate-200 p-8 h-full flex flex-col justify-center min-h-[300px]">
+            {result === 'none' && !isChecking && (
+              <div className="text-center text-slate-400">
+                <ShieldCheck className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p>Upload a signature and click check.</p>
+              </div>
+            )}
+
+            {isChecking && (
+              <div className="text-center text-blue-500 animate-pulse">
+                <Search className="w-16 h-16 mx-auto mb-4" />
+                <h3 className="text-xl font-bold">Analyzing signature...</h3>
+                <p className="text-sm text-slate-500 mt-2">Checking strokes, pressure, and shape.</p>
+              </div>
+            )}
+
+            {!isChecking && result !== 'none' && (
+              <div className="text-center">
+                <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 ${
+                  result === 'match' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+                }`}>
+                  {result === 'match' ? <Check className="w-10 h-10" /> : <X className="w-10 h-10" />}
+                </div>
+                <h3 className="text-2xl font-bold mb-1">
+                  {result === 'match' ? 'Signature genuine' : 'Possible forgery'}
+                </h3>
+                <p className="text-slate-600 text-sm">
+                  {result === 'match'
+                    ? 'The signature looks consistent with an authentic signature.'
+                    : 'The signature shows signs of inconsistency and possible forgery.'}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
-          <div className="grid md:grid-cols-2 gap-8 items-center">
-            
-            {/* Upload Area */}
-            <div className="space-y-6">
-              <h2 className="text-xl font-bold text-slate-800">1. Upload Signature Sample</h2>
-              
-              <label className="block w-full border-2 border-dashed border-blue-200 bg-blue-50 hover:bg-blue-100 transition-colors rounded-2xl p-10 text-center cursor-pointer">
-                <input type="file" className="hidden" accept="image/*" onChange={handleUpload} />
-                {uploadedImage ? (
-                  <div className="relative h-32 w-full">
-                    <img src={uploadedImage} alt="Uploaded signature" className="w-full h-full object-contain" />
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center text-blue-600">
-                    <Upload className="w-10 h-10 mb-3 opacity-80" />
-                    <span className="font-semibold">Click to upload signature image</span>
-                    <span className="text-sm text-slate-500 mt-2 text-center">JPG, PNG, WebP supported</span>
-                  </div>
-                )}
-              </label>
-
-              <div className="flex gap-4">
-                <input type="text" placeholder="Account Number or ID (Optional)" className="w-full border border-slate-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-
-              <button 
-                onClick={verifySignature}
-                disabled={!uploadedImage || isChecking}
-                className="w-full bg-blue-600 text-white font-bold rounded-xl px-6 py-4 flex items-center justify-center gap-2 hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-md animate-pulse-subtle"
-              >
-                {isChecking ? <Search className="w-5 h-5 animate-spin" /> : <Search className="w-5 h-5" />}
-                {isChecking ? 'Verifying Identity...' : 'Check Signature Match'}
-              </button>
-            </div>
-
-            {/* Verification Processing Indicator Area */}
-            <div className="bg-slate-50 rounded-2xl border border-slate-200 p-8 h-full flex flex-col justify-center min-h-[300px]">
-              {result === 'none' && !isChecking && (
-                <div className="text-center text-slate-400">
-                  <ShieldCheck className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                  <p>Awaiting signature upload and verification.</p>
-                </div>
-              )}
-
-              {isChecking && (
-                <div className="text-center text-blue-500 animate-pulse">
-                  <Search className="w-16 h-16 mx-auto mb-4" />
-                  <h3 className="text-xl font-bold">Analyzing Signature Biometrics...</h3>
-                  <p className="text-sm text-slate-500 mt-2">Checking loop sizes, pressure points, and slant...</p>
-                </div>
-              )}
-
-              {!isChecking && result !== 'none' && (
-                <div className="text-center">
-                  <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 ${
-                    result === 'match' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
-                  }`}>
-                    {result === 'match' ? <Check className="w-10 h-10" /> : <X className="w-10 h-10" />}
-                  </div>
-                  <h3 className="text-2xl font-bold mb-1">{result === 'match' ? 'Signature Verified' : 'Forgery Alert'}</h3>
-                  <p className="text-slate-600 text-sm">
-                    {result === 'match' 
-                      ? 'This signature mathematically matches the reference signature on file.' 
-                      : 'This signature exhibits signs of inconsistency and potential forgery.'}
+        {/* Result summary */}
+        {result !== 'none' && !isChecking && report && (
+          <div className="mt-8 border-t border-slate-200 pt-8">
+            <div className="mx-auto max-w-xl rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+              <div className="flex items-center justify-center gap-8">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Score</p>
+                  <p className="text-3xl font-black text-slate-900">
+                    {report.score}<span className="text-base font-semibold text-slate-400">/100</span>
                   </p>
                 </div>
-              )}
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Risk</p>
+                  <p className={`mt-1 inline-block rounded-full px-3 py-1 text-xs font-black uppercase tracking-wider ${
+                    result === 'match' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  }`}>
+                    {result === 'match' ? 'Low' : 'High'}
+                  </p>
+                </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Confidence</p>
+                    <p className="text-3xl font-black text-slate-900">{report.confidence}%</p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleDownloadReport}
+                  className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-8 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-indigo-700"
+                >
+                  <Download className="h-4 w-4" />
+                  Download PDF Report
+                </button>
+              </div>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              {analysis &&
+                [
+                  { label: 'Stroke consistency', ok: analysis.metrics.strokeWidthCV < 0.6, detail: `CV ${analysis.metrics.strokeWidthCV.toFixed(2)}` },
+                  { label: 'Pen pressure', ok: analysis.metrics.pressureVariance >= 20 && analysis.metrics.pressureVariance <= 80, detail: `Var ${analysis.metrics.pressureVariance}` },
+                  { label: 'Stroke smoothness', ok: analysis.metrics.smoothness > 45, detail: `${analysis.metrics.smoothness}/100` },
+                  { label: 'Ink coverage', ok: analysis.metrics.inkCoverage < 30, detail: `${analysis.metrics.inkCoverage}%` },
+                ].map((row) => (
+                <div key={row.label} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm">
+                  <span className="font-semibold text-slate-700">{row.label}</span>
+                  <span className={`flex items-center gap-1.5 font-bold ${row.ok ? 'text-green-700' : 'text-red-700'}`}>
+                    {row.ok ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />} {row.detail}
+                  </span>
+                </div>
+              ))}
             </div>
-            
           </div>
-
-          {/* Detailed Forensic Report */}
-          {result !== 'none' && !isChecking && report && (
-            <div className="mt-12 space-y-8 border-t border-slate-200 pt-8">
-              <div className="text-center">
-                <span className={`inline-block px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest ${
-                  result === 'match' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                }`}>
-                  {result === 'match' ? 'Signature Authentic' : 'Signature Forged / Mismatch'}
-                </span>
-                <h3 className="text-3xl font-extrabold text-slate-900 mt-2">Signature Check Forensic Report</h3>
-              </div>
-
-              {/* Basic Information */}
-              <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm text-left">
-                <h4 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-                  <FileSignature className="w-5 h-5 text-blue-600" />
-                  Basic Information
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <p className="text-xs text-slate-500 font-semibold uppercase">Signature ID</p>
-                    <p className="text-sm font-bold text-slate-800">{report.details.signatureId}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500 font-semibold uppercase">Reference Signature</p>
-                    <p className="text-sm font-bold text-slate-800 truncate" title={report.details.referenceSignature}>{report.details.referenceSignature}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500 font-semibold uppercase">Upload Time</p>
-                    <p className="text-sm font-bold text-slate-800">{report.details.uploadTime}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* AI Detection Results */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden text-left">
-                <div className="p-6 border-b border-slate-100 bg-slate-50/50">
-                  <h4 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                    <CheckCircle className="w-5 h-5 text-emerald-600" />
-                    AI Detection Results
-                  </h4>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50 text-xs font-bold text-slate-500 uppercase">
-                        <th className="px-6 py-4">Check</th>
-                        <th className="px-6 py-4">Status</th>
-                        <th className="px-6 py-4">Confidence</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-sm">
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Signature Match</td>
-                        <td className="px-6 py-4">
-                          <span className={`font-semibold ${result === 'match' ? 'text-emerald-600' : 'text-red-600'}`}>
-                            {result === 'match' ? '95% Match' : '23% Match'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 font-bold text-slate-600">{result === 'match' ? '95%' : '98%'}</td>
-                      </tr>
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Forgery Probability</td>
-                        <td className="px-6 py-4">
-                          <span className={`font-semibold ${result === 'match' ? 'text-slate-600' : 'text-red-600'}`}>
-                            {result === 'match' ? '7%' : '92%'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 font-bold text-slate-600">{result === 'match' ? '93%' : '96%'}</td>
-                      </tr>
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Stroke Consistency</td>
-                        <td className="px-6 py-4">
-                          <span className="font-semibold text-slate-700">{result === 'match' ? 'Good' : 'Poor (Hesitation)'}</span>
-                        </td>
-                        <td className="px-6 py-4 font-bold text-slate-600">{result === 'match' ? '94%' : '91%'}</td>
-                      </tr>
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Pen Pressure</td>
-                        <td className="px-6 py-4 font-semibold text-slate-700">{result === 'match' ? 'Normal' : 'Irregular'}</td>
-                        <td className="px-6 py-4 font-bold text-slate-600">{result === 'match' ? '91%' : '88%'}</td>
-                      </tr>
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Writing Speed</td>
-                        <td className="px-6 py-4 font-semibold text-slate-700">{result === 'match' ? 'Similar' : 'Inconsistent'}</td>
-                        <td className="px-6 py-4 font-bold text-slate-600">90%</td>
-                      </tr>
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Shape Similarity</td>
-                        <td className="px-6 py-4">
-                          <span className="font-bold text-blue-600">{result === 'match' ? '96%' : '42%'}</span>
-                        </td>
-                        <td className="px-6 py-4 font-bold text-slate-600">96%</td>
-                      </tr>
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Angle Difference</td>
-                        <td className="px-6 py-4 font-semibold text-slate-700">{result === 'match' ? 'Low' : 'High'}</td>
-                        <td className="px-6 py-4 font-bold text-slate-600">95%</td>
-                      </tr>
-                      <tr>
-                        <td className="px-6 py-4 font-semibold text-slate-700">Size Difference</td>
-                        <td className="px-6 py-4 font-semibold text-slate-700">{result === 'match' ? 'Low' : 'Medium'}</td>
-                        <td className="px-6 py-4 font-bold text-slate-600">94%</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* AI Prediction */}
-              <div className="bg-slate-50 border-l-4 border-blue-600 rounded-r-xl p-5 shadow-sm text-left">
-                <h5 className="font-bold text-slate-900 mb-2 flex items-center gap-2 text-sm">
-                  <Info className="w-4 h-4 text-blue-600" />
-                  AI Prediction
-                </h5>
-                <blockquote className="text-slate-700 italic text-sm leading-relaxed">
-                  {result === 'match' 
-                    ? `Signature matches the reference with 95% confidence. No significant signs of forgery were detected.`
-                    : `Signature shows a high probability of forgery (92%). The stroke line reveals high speed hesitation and tremor patterns indicating drawing rather than rapid signature execution.`
-                  }
-                </blockquote>
-              </div>
-
-              {/* AI Recommendation & Score */}
-              <div className="grid md:grid-cols-2 gap-6 text-left">
-                {/* AI Recommendations */}
-                <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col justify-between">
-                  <div>
-                    <h4 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-                      <Check className="w-5 h-5 text-emerald-600" />
-                      AI Recommendation
-                    </h4>
-                    <ul className="space-y-3">
-                      {result === 'match' ? (
-                        <>
-                          <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                            <span className="text-emerald-500 font-bold">✓</span>
-                            <span>Signature appears authentic.</span>
-                          </li>
-                          <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                            <span className="text-emerald-500 font-bold">✓</span>
-                            <span>Manual verification recommended only for high-value legal or financial documents.</span>
-                          </li>
-                        </>
-                      ) : (
-                        <>
-                          <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                            <span className="text-red-500 font-bold">✗</span>
-                            <span>Reject the signature as invalid/forged.</span>
-                          </li>
-                          <li className="flex items-start gap-2.5 text-sm text-slate-600">
-                            <span className="text-red-500 font-bold">✗</span>
-                            <span>Verify ID proof manually and contact the account owner.</span>
-                          </li>
-                        </>
-                      )}
-                    </ul>
-                  </div>
-                </div>
-
-                {/* Overall Score */}
-                {(() => {
-                  const colors = getRiskColor(report.risk);
-                  return (
-                    <div className={`rounded-2xl p-6 border ${colors.border} ${colors.bg} flex flex-col items-center justify-center text-center shadow-sm`}>
-                      <p className="text-sm font-extrabold text-slate-700 tracking-wider uppercase mb-2">Signature Trust Score</p>
-                      <div className="text-5xl font-black text-slate-900 mb-2">{report.score} <span className="text-2xl font-semibold text-slate-500">/ 100</span></div>
-                      <div className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider ${colors.badge}`}>
-                        Risk Level : {colors.indicator}
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
-          )}
-
-        </div>
+        )}
       </div>
     </div>
   );

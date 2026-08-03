@@ -8,50 +8,71 @@ interface OCRResult {
   text: string;
   confidence: number;
   language: string;
+  pages: number;
   forensics?: ForensicsResult;
 }
 
-const getDatasetRiskOverride = (fileName: string, documentType?: string) => {
-  const normalizedName = fileName.toLowerCase();
-  const normalizedType = documentType?.toLowerCase() || '';
+// Preprocess image for better OCR: upscale small images, convert to grayscale,
+// boost contrast, and reduce background noise (watermarks, shadows).
+const preprocessForOCR = async (imageData: string): Promise<HTMLCanvasElement> => {
+  const img = new Image();
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('Failed to load image for preprocessing'));
+    img.src = imageData;
+  });
 
-  // Give priority to specific mock filenames first
-  if (/\bpan[\s_-]*og\b|\bog\b/.test(normalizedName)) {
-    return { score: 95, riskLevel: 'genuine' as const };
-  }
-  if (/\bpan[\s_-]*dp\b|\bdp\b/.test(normalizedName)) {
-    return { score: 35, riskLevel: 'suspicious' as const };
-  }
-  if (/\bpan[\s_-]*duplicate\b|\bduplicate\b/.test(normalizedName)) {
-    return { score: 10, riskLevel: 'fake' as const };
-  }
+  const maxDim = Math.max(img.naturalWidth, img.naturalHeight);
+  const scale = Math.max(1, Math.min(3, 1800 / maxDim));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(img.naturalWidth * scale);
+  canvas.height = Math.round(img.naturalHeight * scale);
 
-  // Then fallback to selected documentType
-  if (normalizedType === 'pan') {
-    return { score: 95, riskLevel: 'genuine' as const };
-  }
-  if (normalizedType === 'aadhaar') {
-    return { score: 90, riskLevel: 'genuine' as const };
-  }
-  if (normalizedType === 'voter_id') {
-    return { score: 85, riskLevel: 'genuine' as const };
-  }
-  if (normalizedType === 'license') {
-    return { score: 88, riskLevel: 'genuine' as const };
-  }
-  if (normalizedType === 'marksheet') {
-    return { score: 92, riskLevel: 'genuine' as const };
-  }
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return canvas;
 
-  // Fallbacks based on filename
-  if (normalizedName.includes('fake') || normalizedName.includes('forged') || normalizedName.includes('tamper')) {
-    return { score: 15, riskLevel: 'fake' as const };
-  }
-  if (normalizedName.includes('scan') || normalizedName.includes('copy')) {
-    return { score: 45, riskLevel: 'suspicious' as const };
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const imageDataObj = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageDataObj.data;
+
+  const contrast = 1.4;
+  const brightness = -18;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    const adjusted = (gray - 128) * contrast + 128 + brightness;
+    const value = Math.max(0, Math.min(255, adjusted));
+    data[i] = value;
+    data[i + 1] = value;
+    data[i + 2] = value;
   }
 
-  return null;
+  ctx.putImageData(imageDataObj, 0, 0);
+  return canvas;
+};
+
+// Decode an image to raw pixel data for real forensics analysis.
+const decodeImageData = async (imageData: string): Promise<ImageData | null> => {
+  try {
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Failed to decode image'));
+      img.src = imageData;
+    });
+    const maxDim = 900;
+    const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return ctx.getImageData(0, 0, canvas.width, canvas.height);
+  } catch (e) {
+    console.log('[v0] Image decode failed:', e);
+    return null;
+  }
 };
 
 export async function processImage(file: File, documentType: string = 'auto'): Promise<OCRResult> {
@@ -62,31 +83,29 @@ export async function processImage(file: File, documentType: string = 'auto'): P
       reader.onload = async (event) => {
         try {
           const imageData = event.target?.result as string;
-        const ab = await fetch(imageData).then((r) => r.arrayBuffer());
-        const buffer = new Uint8Array(ab);
-        const Tesseract = (await import('tesseract.js')).default;
+          const Tesseract = (await import('tesseract.js')).default;
+          // Preprocess the image (upscale + grayscale + contrast) for cleaner OCR
+          const preprocessed = await preprocessForOCR(imageData);
           // Run OCR
-          const result = await Tesseract.recognize(imageData, 'eng', {
+          const result = await Tesseract.recognize(preprocessed, 'eng', {
             logger: (m) => console.log('[v0] OCR Progress:', m),
           });
 
           const text = result.data.text.trim();
           const confidence = result.data.confidence;
 
-          // Run forensics analysis
+          // Run forensics analysis on the actual decoded pixels
           const textIssues = analyzeTextCharacteristics(text);
           let pixelIssues: any[] = [];
           try {
-            pixelIssues = await analyzeImagePixels(buffer);
+            const decoded = await decodeImageData(imageData);
+            pixelIssues = await analyzeImagePixels(decoded);
           } catch (e) {
             console.log('[v0] Pixel analysis skipped:', e);
           }
           
           const allIssues = [...textIssues, ...pixelIssues];
           const { score, riskLevel } = calculateSuspicionScore(allIssues);
-          const override = getDatasetRiskOverride(file.name, documentType);
-          const finalScore = override ? override.score : score;
-          const finalRiskLevel = override ? override.riskLevel : riskLevel;
           const analysisDetails = generateForensicsReport(allIssues);
           let contractAnalysis = undefined;
           const isContract = file.name.toLowerCase().includes('contract') || file.name.toLowerCase().includes('rent') || file.name.toLowerCase().includes('agreement');
@@ -101,13 +120,12 @@ export async function processImage(file: File, documentType: string = 'auto'): P
           }
 
           const forensicsResult: ForensicsResult = {
-            suspicionScore: finalScore,
-            riskLevel: finalRiskLevel,
+            suspicionScore: score,
+            riskLevel,
             issues: allIssues,
             analysisDetails,
             contractAnalysis,
           };
-
           // Live AI Integration
           try {
             const aiResponse = await fetch('/api/analyze', {
@@ -143,6 +161,7 @@ export async function processImage(file: File, documentType: string = 'auto'): P
             text,
             confidence: Math.max(0, Math.min(100, confidence)),
             language: 'English',
+            pages: 1,
             forensics: forensicsResult,
           });
         } catch (error) {
@@ -282,6 +301,7 @@ export async function processPDF(file: File, documentType: string = 'auto'): Pro
       text: fullText.trim(),
       confidence: Math.max(0, Math.min(100, averageConfidence)),
       language: 'English',
+      pages: totalPages,
       forensics: forensicsResult,
     };
   } catch (error) {
@@ -339,6 +359,7 @@ export async function processDOCX(file: File, documentType: string = 'auto'): Pr
       text: fullText.trim(),
       confidence: 100, // Text extraction from docx is exact
       language: 'English',
+      pages: 1,
       forensics: forensicsResult,
     };
   } catch (error) {

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { ShieldCheck, User, LogOut, Menu, X } from 'lucide-react';
+import { User, LogOut, Menu, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { getLoggedInUser, logout, type LoggedInUser } from '@/lib/auth';
@@ -44,9 +44,8 @@ export default function Navbar() {
     <header className="sticky top-0 z-50 w-full border-b border-slate-200/80 bg-white/80 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
         <Link href="/" className="flex items-center gap-2">
-          <div className="rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 p-1.5 shadow-sm">
-            <ShieldCheck className="h-5 w-5 text-white" />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icon.svg" alt="DocuGuard" className="h-9 w-9 rounded-lg" />
           <span className="text-xl font-bold tracking-tight text-slate-900">DocuGuard</span>
         </Link>
 

@@ -119,8 +119,7 @@ against pre-bundled authentic/tampered samples — no upload needed.
 1. Push this repository to GitHub.
 2. In Render: **New → Blueprint**, and select the repo.
 3. Render reads `render.yaml` and creates the web service automatically.
-4. In the service **Environment** tab, set `GROQ_API_KEY` (get one free at
-   https://console.groq.com/keys).
+4. In the service **Environment** tab, set `GROQ_API_KEY`.
 5. Deploy and open the live URL.
 
 ### Option B — Manual web service
@@ -141,7 +140,7 @@ handles AI text review.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GROQ_API_KEY` | No* | Enables live AI forensic analysis (https://console.groq.com/keys) |
+| `GROQ_API_KEY` | No* | Enables live AI forensic analysis |
 | `GROQ_MODEL` | No | Defaults to `llama-3.3-70b-versatile` |
 
 \* Without a key the app still works: OCR + local forensics run fully, and the
@@ -180,6 +179,4 @@ The platform reports an **Authenticity Score (0–100)** — higher is more genu
 Next.js 16 · React 19 · TypeScript · Tailwind CSS v4 · Tesseract.js · PDF.js ·
 Mammoth (DOCX) · face-api.js (TensorFlow.js) · Groq (AI analysis)
 
-## License
 
-© 2026 DocuGuard. Developed by Ravi Divya. For demonstration and evaluation purposes.

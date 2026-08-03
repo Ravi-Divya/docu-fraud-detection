@@ -4,7 +4,6 @@ AI-powered document authentication platform. Upload a document, photo, or
 signature — DocuGuard runs OCR forensics, pixel analysis, and AI review to
 detect forged documents, tampered signatures, and manipulated photos.
 
-![Stack](https://img.shields.io/badge/Next.js%2016-React%2019-TypeScript-blue)
 ![Deploy](https://img.shields.io/badge/Deploy-Render%20Ready-green)
 
 ## How It Works (Current Flow)
